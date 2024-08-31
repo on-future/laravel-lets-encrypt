@@ -43,11 +43,12 @@ class LetsEncrypt
      * Creates a new certificate. The heavy work is pushed on the queue.
      * @param string $domain
      * @param array $chain
+     * @param callable $catchCallback
      * @return array{LetsEncryptCertificate, PendingDispatch}
      * @throws DomainAlreadyExists
      * @throws InvalidDomainException
      */
-    public function create(string $domain, array $chain = []): array
+    public function create(string $domain, array $chain = [], callable $catchCallback = null): array
     {
         self::validateDomain($domain);
         self::checkDomainDoesNotExist($domain);
@@ -58,10 +59,16 @@ class LetsEncrypt
             'domain' => $domain,
         ]);
 
-        return [$certificate, RegisterAccount::withChain(array_merge([
+        $job = RegisterAccount::withChain(array_merge([
             new RequestAuthorization($certificate),
             new RequestCertificate($certificate),
-        ], $chain))->dispatch($email)];
+        ], $chain));
+    
+        if ($catchCallback) {
+            $job = $job->catch($catchCallback);
+        }
+
+        return [$certificate, $job->dispatch($email)];
     }
 
     /**
@@ -118,10 +125,11 @@ class LetsEncrypt
     /**
      * @param string|LetsEncryptCertificate $domain
      * @param array $chain
+     * @param callable $catchCallback
      * @return mixed
      * @throws InvalidDomainException
      */
-    public function renew($domain, array $chain = [])
+    public function renew($domain, array $chain = [], callable $catchCallback = null)
     {
         if (! $domain instanceof LetsEncryptCertificate) {
             $domain = LetsEncryptCertificate::where('domain', $domain)->first();
@@ -129,10 +137,16 @@ class LetsEncrypt
 
         $email = config('lets_encrypt.universal_email_address', null);
 
-        return RegisterAccount::withChain(array_merge([
+        $job = RegisterAccount::withChain(array_merge([
             new RequestAuthorization($domain),
             new RequestCertificate($domain),
-        ], $chain))->dispatch($email);
+        ], $chain));
+    
+        if ($catchCallback) {
+            $job = $job->catch($catchCallback);
+        }
+    
+        return $job->dispatch($email);
     }
 
     /**
